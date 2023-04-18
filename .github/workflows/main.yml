@@ -1,0 +1,22 @@
+name: rwmem Meson Build
+
+on:
+  push:
+    branches: [ "master"]
+  pull_request:
+    branches: [ "master"]
+    
+    
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: install deps
+      run: sudo apt install -y meson ninja-build libdrm-dev libegl1-mesa-dev libgles2-mesa-dev libwayland-dev libx11-xcb-dev libx11-dev libgbm-dev libevdev-dev libfmt-dev
+    - name: configure
+      run: meson build
+    - name: build
+      run: ninja -v -C build
