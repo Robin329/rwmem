@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.org/tomba/rwmem.svg?branch=master)](https://travis-ci.org/tomba/rwmem)
+[![Build Status](https://github.com/Robin329/rwmem/actions/workflows/main.yml/badge.svg)](https://github.com/Robin329/rwmem/actions/workflows/main.yml)
 
 # rwmem - A small tool to read & write device registers
 
