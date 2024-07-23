@@ -28,9 +28,7 @@ rwmem features:
 
 ## Build Dependencies
 
-You need `meson` and `ninja` for building.
-
-You need python3 development files if python bindings are enabled. On debian based systems you need to install `python3-dev` package.
+You need `meson`, `ninja` and `fmt` for building. `inih` is an optional dependency.
 
 ## Build Instructions
 
@@ -72,12 +70,21 @@ endian = 'little'
 You can use meson options to configure the build. E.g.
 
 ```
-meson build -Dstatic-libc=true
+meson build -Dpyrwmem=disabled
 ```
 
 Use `meson configure build` to see all the configuration options and their current values.
 
 See `meson_options.txt` for rwmem specific options.
+
+### Build a static rwmem
+
+You can build a static rwmem executable e.g. with:
+
+```
+meson setup -Dfmt:cpp_std=c++20 -Dbuildtype=minsize -Db_lto=true -Dwrap_mode=forcefallback -Dpyrwmem=disabled -Ddefault_library=static -Dprefer_static=true -Dc_link_args="-s -static" -Dcpp_link_args="-s -static" build
+ninja -C build
+```
 
 ## Examples without register file
 
@@ -216,8 +223,8 @@ A register description file is a binary register database. See the code
 (regfiledata.h) and the included python scripts to see the details of the
 format.
 
-It is easy to generate register description files using the regfile_writer.py
-python script. Two additional python scripts can be used to parse IPXACT files
+It is easy to generate register description files using the rwmem.gen python
+module. Two additional python scripts can be used to parse IPXACT files
 (ipxact_parse.py) and csv files from rwmem v1 (csv_parse.py).
 
 ## Bash completion

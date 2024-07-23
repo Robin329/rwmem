@@ -216,7 +216,6 @@ static void readwriteprint(const RwmemOp& op,
 			   ITarget* mm,
 			   uint64_t op_addr,
 			   uint64_t paddr,
-			   unsigned width,
 			   const RegisterFileData* rfd,
 			   const RegisterBlockData* rbd,
 			   const RegisterData* rd,
@@ -242,18 +241,18 @@ static void readwriteprint(const RwmemOp& op,
 	oldval = userval = newval = 0;
 
 	if (rwmem_opts.write_mode != WriteMode::Write) {
-		oldval = mm->read(op_addr, width);
+		oldval = mm->read(paddr);
 
 		switch (rwmem_opts.number_print_mode) {
 		case NumberPrintMode::Dec:
-			rwmem_printq("= {:{}} ", oldval, formatting.value_chars);
+			rwmem_printq("= {:{}}", oldval, formatting.value_chars);
 			break;
 		default:
 		case NumberPrintMode::Hex:
-			rwmem_printq("= {:#0{}x} ", oldval, formatting.value_chars);
+			rwmem_printq("= {:#0{}x}", oldval, formatting.value_chars);
 			break;
 		case NumberPrintMode::Bin:
-			rwmem_printq("= {:#0{}b} ", oldval, formatting.value_chars);
+			rwmem_printq("= {:#0{}b}", oldval, formatting.value_chars);
 			break;
 		}
 
@@ -269,37 +268,37 @@ static void readwriteprint(const RwmemOp& op,
 
 		switch (rwmem_opts.number_print_mode) {
 		case NumberPrintMode::Dec:
-			rwmem_printq(":= {:{}} ", v, formatting.value_chars);
+			rwmem_printq(" := {:{}}", v, formatting.value_chars);
 			break;
 		default:
 		case NumberPrintMode::Hex:
-			rwmem_printq(":= {:#0{}x} ", v, formatting.value_chars);
+			rwmem_printq(" := {:#0{}x}", v, formatting.value_chars);
 			break;
 		case NumberPrintMode::Bin:
-			rwmem_printq(":= {:#0{}b} ", v, formatting.value_chars);
+			rwmem_printq(" := {:#0{}b}", v, formatting.value_chars);
 			break;
 		}
 
 		fflush(stdout);
 
-		mm->write(op_addr, width, v);
+		mm->write(paddr, v);
 
 		newval = v;
 		userval = v;
 
 		if (rwmem_opts.write_mode == WriteMode::ReadWriteRead) {
-			newval = mm->read(op_addr, width);
+			newval = mm->read(paddr);
 
 			switch (rwmem_opts.number_print_mode) {
 			case NumberPrintMode::Dec:
-				rwmem_printq("-> {:{}}", newval, formatting.value_chars);
+				rwmem_printq(" -> {:{}}", newval, formatting.value_chars);
 				break;
 			default:
 			case NumberPrintMode::Hex:
-				rwmem_printq("-> {:#0{}x}", newval, formatting.value_chars);
+				rwmem_printq(" -> {:#0{}x}", newval, formatting.value_chars);
 				break;
 			case NumberPrintMode::Bin:
-				rwmem_printq("-> {:#0{}b}", newval, formatting.value_chars);
+				rwmem_printq(" -> {:#0{}b}", newval, formatting.value_chars);
 				break;
 			}
 		}
@@ -358,25 +357,42 @@ static RwmemOp parse_op(const string& arg_str, const RegisterFile* regfile)
 	const RegisterData* rd = nullptr;
 
 	if (parse_u64(arg.address, &op.reg_offset) != 0) {
-		ERR_ON(!rfd, "Invalid address '%s'", arg.address.c_str());
+		ERR_ON(!rfd, "Invalid address '{}'", arg.address);
 
 		vector<string> strs = split(arg.address, '.');
 
-		ERR_ON(strs.size() > 2, "Invalid address '%s'", arg.address.c_str());
+		ERR_ON(strs.size() > 2, "Invalid address '{}'", arg.address);
 
-		const RegisterBlockData* rbd = rfd->find_block(strs[0]);
+		// First try with str[0] meaning the reg block, if that fails
+		// search all regblocks for the str[0] register.
+		if (const RegisterBlockData* rbd = rfd->find_block(strs[0])) {
+			op.rbd = rbd;
 
-		ERR_ON(!rbd, "Failed to find register block");
+			if (strs.size() > 1) {
+				op.rds = match_registers(rfd, rbd, strs[1]);
+				ERR_ON(op.rds.empty(), "Failed to find register");
+				rd = op.rds[0];
+			} else {
+				rd = rbd->at(rfd, 0);
+				ERR_ON(!rd, "Failed to figure out first register");
+			}
+		} else if (strs.size() == 1) {
+			for (uint32_t bidx = 0; bidx < rfd->num_blocks(); ++bidx) {
+				const RegisterBlockData* rbd = rfd->at(bidx);
+				const auto rds = match_registers(rfd, rbd, strs[0]);
+				if (!rds.empty()) {
+					op.rbd = rbd;
+					op.rds = rds;
+					break;
+				}
+			}
 
-		op.rbd = rbd;
+			ERR_ON(op.rds.empty(), "Failed to find reg by search");
 
-		if (strs.size() > 1) {
-			op.rds = match_registers(rfd, rbd, strs[1]);
-			ERR_ON(op.rds.empty(), "Failed to find register");
 			rd = op.rds[0];
-		} else {
-			rd = rbd->at(rfd, 0);
 			ERR_ON(!rd, "Failed to figure out first register");
+		} else {
+			ERR("Failed to find register block or register");
 		}
 	}
 
@@ -384,10 +400,10 @@ static RwmemOp parse_op(const string& arg_str, const RegisterFile* regfile)
 
 	if (arg.range.size()) {
 		int r = parse_u64(arg.range, &op.range);
-		ERR_ON(r, "Invalid range '%s'", arg.range.c_str());
+		ERR_ON(r, "Invalid range '{}'", arg.range);
 
 		if (!arg.range_is_offset) {
-			ERR_ON(op.range <= op.reg_offset, "range '%s' is <= 0", arg.range.c_str());
+			ERR_ON(op.range <= op.reg_offset, "range '{}' is <= 0", arg.range);
 
 			op.range = op.range - op.reg_offset;
 		}
@@ -406,7 +422,7 @@ static RwmemOp parse_op(const string& arg_str, const RegisterFile* regfile)
 
 		bool ok = false;
 
-		if (sscanf(arg.field.c_str(), "%i:%i", &fh, &fl) == 2)
+		if (sscanf(arg.field.c_str(), "%u:%u", &fh, &fl) == 2)
 			ok = true;
 
 		if (!ok) {
@@ -424,7 +440,7 @@ static RwmemOp parse_op(const string& arg_str, const RegisterFile* regfile)
 			}
 		}
 
-		ERR_ON(!ok, "Field not found '%s'", arg.field.c_str());
+		ERR_ON(!ok, "Field not found '{}'", arg.field);
 
 		ERR_ON(fl >= rwmem_opts.data_size * 8 || fh >= rwmem_opts.data_size * 8,
 		       "Field bits higher than register size");
@@ -443,7 +459,7 @@ static RwmemOp parse_op(const string& arg_str, const RegisterFile* regfile)
 	if (arg.value.size()) {
 		uint64_t value;
 		int r = parse_u64(arg.value, &value);
-		ERR_ON(r, "Invalid value '%s'", arg.value.c_str());
+		ERR_ON(r, "Invalid value '{}'", arg.value);
 
 		uint64_t regmask = ~0ULL >> (64 - rwmem_opts.data_size * 8);
 
@@ -493,7 +509,9 @@ static void do_op_numeric(const RwmemOp& op, ITarget* mm)
 
 	rwmem_vprint("mmap offset={:x} length={:x}\n", op_base, range);
 
-	mm->map(op_base, range, rwmem_opts.address_endianness, rwmem_opts.address_size, rwmem_opts.data_endianness, data_size);
+	mm->map(op_base, range, rwmem_opts.address_endianness, rwmem_opts.address_size,
+		rwmem_opts.data_endianness, data_size,
+	        op.value_valid ? MapMode::ReadWrite : MapMode::Read);
 
 	RwmemFormatting formatting;
 	formatting.name_chars = 30;
@@ -507,7 +525,7 @@ static void do_op_numeric(const RwmemOp& op, ITarget* mm)
 		if (rwmem_opts.raw_output)
 			readprint_raw(mm, op_offset, data_size);
 		else
-			readwriteprint(op, mm, op_offset, op_base + op_offset, data_size, nullptr, nullptr, nullptr, formatting);
+			readwriteprint(op, mm, op_offset, op_base + op_offset, nullptr, nullptr, nullptr, formatting);
 
 		op_offset += data_size;
 	}
@@ -542,7 +560,8 @@ static void do_op_symbolic(const RwmemOp& op, const RegisterFile* regfile, ITarg
 
 	rwmem_vprint("mmap offset={:x} length={:x}\n", rb_access_base, rbd->size());
 
-	mm->map(rb_access_base, rbd->size(), addr_endianness, addr_size, data_endianness, data_size);
+	mm->map(rb_access_base, rbd->size(), addr_endianness, addr_size, data_endianness, data_size,
+	        op.value_valid ? MapMode::ReadWrite : MapMode::Read);
 
 	RwmemFormatting formatting;
 	formatting.name_chars = 30;
@@ -575,7 +594,7 @@ static void do_op_symbolic(const RwmemOp& op, const RegisterFile* regfile, ITarg
 			if (rwmem_opts.raw_output)
 				readprint_raw(mm, rb_access_base + op_offset, data_size);
 			else
-				readwriteprint(op, mm, op_offset, rb_base + op_offset, data_size, rfd, rbd, rd, formatting);
+				readwriteprint(op, mm, op_offset, rb_base + op_offset, rfd, rbd, rd, formatting);
 
 			op_offset += data_size;
 		}
@@ -586,7 +605,7 @@ static void do_op_symbolic(const RwmemOp& op, const RegisterFile* regfile, ITarg
 			if (rwmem_opts.raw_output)
 				readprint_raw(mm, op_offset, data_size);
 			else
-				readwriteprint(op, mm, op_offset, rb_base + op_offset, data_size, rfd, rbd, rd, formatting);
+				readwriteprint(op, mm, op_offset, rb_base + op_offset, rfd, rbd, rd, formatting);
 		}
 	}
 }
@@ -613,12 +632,14 @@ static void print_reg_matches(const RegisterFileData* rfd, const vector<RegMatch
 
 int main(int argc, char** argv)
 {
+#if HAS_INIH
 	try {
-		rwmem_ini.load(string(getenv("HOME")) + "/.rwmem/rwmem.ini");
+		rwmem_ini.load(get_home() + "/.rwmem/rwmem.ini");
 	} catch (...) {
 	}
 
 	load_opts_from_ini_pre();
+#endif
 
 	parse_cmdline(argc, argv);
 
@@ -626,13 +647,15 @@ int main(int argc, char** argv)
 		rwmem_opts.target_type = TargetType::MMap;
 		rwmem_opts.mmap_target = "/dev/mem";
 
+#if HAS_INIH
 		detect_platform();
+#endif
 	}
 
 	unique_ptr<RegisterFile> regfile = nullptr;
 
 	if (!rwmem_opts.regfile.empty()) {
-		string path = string(getenv("HOME")) + "/.rwmem/" + rwmem_opts.regfile;
+		string path = get_home() + "/.rwmem/" + rwmem_opts.regfile;
 
 		if (!file_exists(path))
 			path = rwmem_opts.regfile;
